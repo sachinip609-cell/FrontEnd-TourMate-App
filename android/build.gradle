@@ -1,0 +1,42 @@
+buildscript {
+    ext {
+        buildToolsVersion = "36.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 36
+        targetSdkVersion = 36
+        ndkVersion = "27.1.12297006"
+        kotlinVersion = "2.1.20"
+        // RN geolocation-service expects FusedLocationProviderClient as a class.
+        // Newer Play Services versions expose it differently and crash at runtime.
+        playServicesLocationVersion = "20.0.0"
+        playServicesVersion = "20.0.0"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle")
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"
+
+// Add local Maven repository for AsyncStorage so Gradle can resolve
+// org.asyncstorage.shared_storage:storage-android:1.0.0 coming from
+// node_modules/@react-native-async-storage/async-storage/android/maven
+allprojects {
+    repositories {
+        // Use the package-provided local Maven repo where the AAR is published.
+        maven { url uri("../node_modules/@react-native-async-storage/async-storage/android/local_repo") }
+    }
+
+    configurations.all {
+        resolutionStrategy {
+            // Keep location APIs aligned with react-native-geolocation-service
+            force "com.google.android.gms:play-services-location:20.0.0"
+        }
+    }
+}

@@ -1,0 +1,33 @@
+# Drop your 3D model files here.
+
+#
+
+# SUPPORTED FORMATS:
+
+# building.glb — recommended (GLB/GLTF, supports textures + animations)
+
+# building.obj — convert to .glb first for best results
+
+#
+
+# HOW TO PLACE FILES:
+
+# Copy your .glb file to this folder and name it: building.glb
+
+# Full path: frontend/android/app/src/main/assets/models/building.glb
+
+#
+
+# The app loads: file:///android_asset/models/building.glb
+
+# If not found: a procedural demo building is shown automatically
+
+#
+
+# CONVERT .obj → .glb:
+
+# Option 1 (Blender): File > Import > Wavefront (.obj) → File > Export → glTF 2.0 (.glb)
+
+# Option 2 (Online): https://products.aspose.app/3d/conversion/obj-to-gltf
+
+# Option 3 (CLI): npx obj2gltf -i building.obj -o building.glb

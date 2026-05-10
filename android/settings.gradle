@@ -1,0 +1,29 @@
+pluginManagement { includeBuild("../node_modules/@react-native/gradle-plugin") }
+plugins { id("com.facebook.react.settings") }
+extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
+rootProject.name = 'MyApp'
+// Ensure Gradle can resolve the AsyncStorage AAR published inside the
+// package's local Maven directory. This allows Gradle to find
+// org.asyncstorage.shared_storage:storage-android:1.0.0 during build.
+
+dependencyResolutionManagement {
+	// Allow the React Native Gradle plugin to add its repositories if needed.
+	// Use PREFER_SETTINGS so project plugins can still register repos without failing.
+	repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+		repositories {
+			mavenCentral()
+			google()
+			// AsyncStorage provides a local Maven repository under `android/local_repo`.
+			maven { url = uri("../node_modules/@react-native-async-storage/async-storage/android/local_repo") }
+		}
+}
+
+include ':app'
+includeBuild('../node_modules/@react-native/gradle-plugin')
+
+// ViroReact Android native modules
+include ':react_viro', ':arcore_client', ':gvr_common', ':viro_renderer'
+project(':arcore_client').projectDir = new File('../node_modules/@reactvision/react-viro/android/arcore_client')
+project(':gvr_common').projectDir = new File('../node_modules/@reactvision/react-viro/android/gvr_common')
+project(':viro_renderer').projectDir = new File('../node_modules/@reactvision/react-viro/android/viro_renderer')
+project(':react_viro').projectDir = new File('../node_modules/@reactvision/react-viro/android/react_viro')
