@@ -2,6 +2,8 @@ import React, {
   createContext,
   useContext,
   useState,
+  useMemo,
+  useRef,
   ReactNode,
   useCallback,
   useEffect,
@@ -10,6 +12,7 @@ import { Linking, View } from 'react-native';
 import LoginScreen from '../screens/auth/LoginScreen';
 import SignUpScreen from '../screens/auth/SignUpScreen';
 import SplashScreen from '../screens/onboarding/SplashScreen';
+import WelcomeScreen from '../screens/onboarding/WelcomeScreen';
 import HomeScreen from '../screens/home/HomeScreen';
 import ARScreen from '../screens/ar/ARScreen';
 import MapScreen from '../screens/map/MapScreen';
@@ -31,6 +34,7 @@ import { fetchLatestFirstId, fetchNewsPage } from '../services/newsService';
 
 export type ScreenName =
   | 'Splash'
+  | 'Welcome'
   | 'Login'
   | 'SignUp'
   | 'ForgotPassword'
@@ -104,6 +108,12 @@ export const AppNavigator: React.FC<{ children?: ReactNode }> = ({
   const [user, setUser] = useState<AuthUser | null>(null);
   const [newsUnreadCount, setNewsUnreadCount] = useState<number>(0);
   const [lastSeenNewsId, setLastSeenNewsId] = useState<string | null>(null);
+  // Ref kept in sync with lastSeenNewsId so the polling interval closure
+  // always reads the latest value without re-creating the interval on each change.
+  const lastSeenNewsIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    lastSeenNewsIdRef.current = lastSeenNewsId;
+  }, [lastSeenNewsId]);
   // Lazy-mount MapScreen: only mount after the user first navigates to Map.
   // Once mounted, keep it alive (we hide it via display:'none' instead of
   // unmounting) so the Google Maps native view is never destroyed mid-session.
@@ -135,28 +145,34 @@ export const AppNavigator: React.FC<{ children?: ReactNode }> = ({
     if (current === 'Map') setMapEverVisited(true);
   }, [current]);
 
-  const nav: Navigation = {
-    current,
-    navigate,
-    goBack,
-    openDrawer,
-    closeDrawer,
-    isDrawerOpen,
-    setUser,
-    user,
-    markNewsRead: async () => {
-      try {
-        const first = await fetchLatestFirstId();
-        if (first) setLastSeenNewsId(first);
-        setNewsUnreadCount(0);
-      } catch {
-        setNewsUnreadCount(0);
-      }
-    },
-    newsUnreadCount,
-    setNewsUnreadCount,
-    openArForPlace,
-  };
+  const markNewsRead = useCallback(async () => {
+    try {
+      const first = await fetchLatestFirstId();
+      if (first) setLastSeenNewsId(first);
+      setNewsUnreadCount(0);
+    } catch {
+      setNewsUnreadCount(0);
+    }
+  }, []);
+
+  const nav: Navigation = useMemo(
+    () => ({
+      current,
+      navigate,
+      goBack,
+      openDrawer,
+      closeDrawer,
+      isDrawerOpen,
+      setUser,
+      user,
+      markNewsRead,
+      newsUnreadCount,
+      setNewsUnreadCount,
+      openArForPlace,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [current, isDrawerOpen, user, markNewsRead, newsUnreadCount],
+  );
 
   // Poll for new news headlines and set unread count when new items appear.
   useEffect(() => {
@@ -179,15 +195,16 @@ export const AppNavigator: React.FC<{ children?: ReactNode }> = ({
         const a = page1.articles;
         if (!a || a.length === 0) return;
         const firstId = a[0].id;
-        if (!lastSeenNewsId) {
-          // first time
+        const seenId = lastSeenNewsIdRef.current;
+        if (!seenId) {
+          // first time — just record the current head, don't show as unread
           setLastSeenNewsId(firstId);
           return;
         }
-        if (firstId === lastSeenNewsId) return;
+        if (firstId === seenId) return;
 
         // find index of lastSeen in current page
-        const idx = a.findIndex((x: { id: string }) => x.id === lastSeenNewsId);
+        const idx = a.findIndex((x: { id: string }) => x.id === seenId);
         const newCount = idx >= 0 ? idx : a.length;
         if (newCount > 0) {
           setNewsUnreadCount(n => n + newCount);
@@ -205,7 +222,8 @@ export const AppNavigator: React.FC<{ children?: ReactNode }> = ({
       mounted = false;
       clearInterval(iv);
     };
-  }, [lastSeenNewsId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once — interval uses lastSeenNewsIdRef for latest value
 
   // Deep link handling: tourmate://place/42 or https://tourmate.example/place/42
   useEffect(() => {
@@ -236,7 +254,7 @@ export const AppNavigator: React.FC<{ children?: ReactNode }> = ({
         if (!u) return;
         if (!mounted) return;
         setUser(u);
-        setStack(['Home']);
+        setStack(['Welcome']);
       } catch {
         // ignore restore errors — user will sign in normally
       }
@@ -249,7 +267,9 @@ export const AppNavigator: React.FC<{ children?: ReactNode }> = ({
 
   return (
     <NavigationContext.Provider value={nav}>
-      <AppHeader onMenuPress={openDrawer} />
+      {nav.user !== null && !['ProfileEdit', 'TravelHistory', 'Preferences', 'Welcome'].includes(current) && (
+        <AppHeader onMenuPress={openDrawer} />
+      )}
       <Drawer
         visible={isDrawerOpen}
         onClose={closeDrawer}
@@ -257,6 +277,9 @@ export const AppNavigator: React.FC<{ children?: ReactNode }> = ({
       />
       {children}
       {current === 'Splash' && <SplashScreen />}
+      {current === 'Welcome' && (
+        <WelcomeScreen userName={user?.fullName ?? 'Explorer'} />
+      )}
       {current === 'Login' && <LoginScreen />}
       {current === 'SignUp' && <SignUpScreen />}
       {current === 'ForgotPassword' && <LoginScreen />}

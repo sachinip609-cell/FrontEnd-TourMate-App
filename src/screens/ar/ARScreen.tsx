@@ -18,7 +18,9 @@ import {
   useCodeScanner,
 } from 'react-native-vision-camera';
 import { Colors, Spacing } from '../../theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppNavigation } from '../../navigation/AppNavigator';
+import { HEADER_BASE_HEIGHT } from '../../components/common/AppHeader';
 import ErrorBoundary from '../../components/common/ErrorBoundary';
 
 // ---------------------------------------------------------------------------
@@ -98,76 +100,73 @@ interface ModelInfo {
 }
 
 const HOUSE_MODEL_INFO: ModelInfo = {
-  name: 'Heritage House',
-  emoji: '🏠',
+  name: 'Kandy Museum',
+  emoji: '🏛️',
   description:
-    'A beautifully preserved heritage building showcasing traditional architectural craftsmanship. ' +
-    "This structure dates back to the early 20th century and stands as a symbol of the region's rich cultural history.",
+    'A showcase of Kandyan-era artifacts, traditional textiles, and cultural exhibits highlighting the history and heritage of Kandy and the central highlands.',
   guidance: [
     {
       icon: '🕐',
       title: 'Opening Hours',
-      detail: 'Mon – Fri  9:00 AM – 5:00 PM\nSat – Sun  10:00 AM – 4:00 PM',
+      detail: 'Daily 9:00 AM – 5:00 PM',
     },
     {
       icon: '🎟️',
       title: 'Admission',
-      detail: 'Adults  RM 10  |  Students  RM 5\nChildren under 12  Free',
+      detail: 'Adults LKR 300 | Students LKR 150\nChildren under 12 Free',
     },
     {
       icon: '🗺️',
       title: 'Getting There',
       detail:
-        'Located at Heritage Square, Block A.\nParking available at Level B1 – B3.',
+        'Located in central Kandy near Kandy Lake; short walk from the Temple of the Tooth. Street parking and local tuk-tuks are available.',
     },
     {
       icon: '📸',
       title: 'Photography',
       detail:
-        'Photography allowed in outdoor areas.\nFlash photography prohibited inside.',
+        'Photography is permitted in most galleries; please avoid flash in sensitive exhibit areas.',
     },
     {
       icon: '♿',
       title: 'Accessibility',
-      detail:
-        'Wheelchair ramp at main entrance.\nElevator available to all floors.',
+      detail: 'Ground-level access and ramps available; some galleries may have steps.',
     },
   ],
 };
 
 const PSX_HOUSE_MODEL_INFO: ModelInfo = {
-  name: 'Japanese Village House',
-  emoji: '⛩️',
+  name: 'Temple of the Tooth',
+  emoji: '🛕',
   description:
-    'A faithful recreation of a traditional Japanese minka — a rustic thatched-roof farmhouse ' +
-    'that embodies the harmony between nature and daily life in rural Japan.',
+    "Sri Dalada Maligawa (Temple of the Sacred Tooth) is one of Sri Lanka's most venerated Buddhist shrines, housing a relic believed to be the tooth of the Buddha.",
   guidance: [
     {
       icon: '🕐',
       title: 'Opening Hours',
-      detail: 'Tue – Sun  9:00 AM – 6:00 PM\nClosed on Mondays',
+      detail: 'Daily 5:30 AM – 8:30 PM',
     },
     {
       icon: '🎟️',
       title: 'Admission',
-      detail: 'Adults  RM 8  |  Students  RM 4\nChildren under 10  Free',
+      detail: 'Ticketed entry for visitors; donations are appreciated.\nSpecial puja times may have separate access rules.',
     },
     {
       icon: '🗺️',
       title: 'Getting There',
       detail:
-        'Located at Cultural Village, Wing B.\nBus stop 5 min walk from main gate.',
+        'Situated in Kandy city centre adjacent to the Royal Palace complex and Kandy Lake; easiest reached on foot or by tuk-tuk.',
     },
     {
       icon: '👘',
       title: 'Dress Code',
       detail:
-        'Traditional kimono rental available on-site.\nRecommended for the full experience.',
+        'Modest attire required — shoulders and knees should be covered. Remove shoes and hats before entering inner shrine areas.',
     },
     {
       icon: '♿',
       title: 'Accessibility',
-      detail: 'Ground level access available.\nAssistance staff on duty.',
+      detail: 'Temple grounds include steps; wheelchair access is limited in some areas.',
     },
   ],
 };
@@ -517,7 +516,7 @@ const CameraQRLayer: React.FC<CameraQRLayerProps> = ({
     codeTypes: ['qr'],
     onCodeScanned: codes => {
       if (codes.length === 0 || !isActive || !canScan) return;
-      const value = codes[0].value ?? '';
+      const value = (codes[0].value ?? '').trim();
       if (value === AR_VALID_KEY) {
         onValidQR();
       } else if (!invalidQRRef.current) {
@@ -692,6 +691,8 @@ interface ARScreenProps {
 
 const ARScreen: React.FC<ARScreenProps> = () => {
   const nav = useAppNavigation();
+  const insets = useSafeAreaInsets();
+  const topBarTop = (insets.top ?? 0) + HEADER_BASE_HEIGHT + 6; // place top bar below app header
   // useState instead of useRef avoids a null-ref crash on low-end devices
   // where vision-camera hooks can corrupt React's hook state on first render.
   const [scanLine] = useState(() => new Animated.Value(0));
@@ -844,7 +845,7 @@ const ARScreen: React.FC<ARScreenProps> = () => {
       )}
 
       {/* ── Top bar ── */}
-      <View style={s.topBar} pointerEvents="box-none">
+      <View style={[s.topBar, { top: topBarTop }]} pointerEvents="box-none">
         <TouchableOpacity
           style={s.backCircle}
           onPress={() => {
@@ -937,9 +938,8 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 48,
+    paddingVertical: 10,
     paddingHorizontal: 16,
-    paddingBottom: 12,
     zIndex: 10,
   },
   backCircle: {

@@ -10,7 +10,9 @@ import {
   Image,
   ActivityIndicator,
 } from 'react-native';
+
 import { launchImageLibrary } from 'react-native-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Spacing } from '../../theme';
 import {
   getUser,
@@ -26,6 +28,7 @@ const AVATAR_SIZE = 88;
 
 const ProfileDetailsScreen: React.FC = () => {
   const nav = useAppNavigation();
+  const insets = useSafeAreaInsets();
   const [user, setUser] = useState<any>(null);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -185,7 +188,7 @@ const ProfileDetailsScreen: React.FC = () => {
       keyboardShouldPersistTaps="handled"
     >
       {/* Back header */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <TouchableOpacity onPress={() => nav.goBack()} style={styles.backBtn}>
           <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
@@ -356,7 +359,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 56,
+    paddingTop: 8, // overridden dynamically via insets.top + 8
     paddingBottom: Spacing.md,
     paddingHorizontal: Spacing.base,
     backgroundColor: Colors.surface,

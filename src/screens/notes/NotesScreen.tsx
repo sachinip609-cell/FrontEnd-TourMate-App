@@ -13,7 +13,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { HEADER_BASE_HEIGHT } from '../../components/common/AppHeader';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Colors, Spacing } from '../../theme';
 import { NoteCardSkeleton } from '../../components/common/Skeleton';
@@ -242,6 +243,7 @@ const NotesScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const insets = useSafeAreaInsets();
 
   const [modalVisible, setModalVisible] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
@@ -344,7 +346,7 @@ const NotesScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>
       {loading && notes.length === 0 ? (
-        <View style={styles.listContent}>
+        <View style={[styles.listContent, { paddingTop: insets.top + HEADER_BASE_HEIGHT }]}>
           <Text style={styles.screentitle}>My Trip Notes</Text>
           {[1, 2, 3, 4].map(k => (
             <NoteCardSkeleton key={k} />
@@ -354,7 +356,7 @@ const NotesScreen: React.FC = () => {
         <FlatList
           data={notes}
           keyExtractor={item => item._id}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingTop: insets.top + HEADER_BASE_HEIGHT }]}
           renderItem={({ item }) => (
             <NoteCard
               note={item}
@@ -401,7 +403,7 @@ const styles = StyleSheet.create({
 
   listContent: {
     padding: Spacing.base,
-    paddingTop: 72,
+    paddingTop: 0, // overridden dynamically via insets + HEADER_BASE_HEIGHT
     paddingBottom: 100, // clear FAB
   },
 

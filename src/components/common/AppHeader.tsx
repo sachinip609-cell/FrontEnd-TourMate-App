@@ -1,58 +1,49 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Platform,
-} from 'react-native';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Spacing, Typography } from '../../theme';
-import { AppStrings } from '../../constants';
-import { useAppNavigation } from '../../navigation/AppNavigator';
 
 interface Props {
   onMenuPress: () => void;
 }
 
+/** Base height of the header bar (excluding status-bar inset). */
+export const HEADER_BASE_HEIGHT = 56;
+
 const AppHeader: React.FC<Props> = ({ onMenuPress }) => {
-  const nav = useAppNavigation();
+  const insets = useSafeAreaInsets();
+  const sideWidth = 56;
 
   return (
-    <View style={styles.container} pointerEvents="box-none">
-      <TouchableOpacity
-        onPress={onMenuPress}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      >
-        <View style={styles.hamburger}>
-          <View style={styles.bar} />
-          <View style={styles.bar} />
-          <View style={styles.bar} />
-        </View>
-      </TouchableOpacity>
-
-      <Text style={Typography.brandLogo}>{AppStrings.brand.name}</Text>
-
-      <TouchableOpacity
-        onPress={() => {
-          nav.navigate('News');
-        }}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        style={styles.iconWrap}
-      >
-        <MaterialCommunityIcons
-          name={nav.newsUnreadCount > 0 ? 'bell-ring' : 'bell-outline'}
-          size={22}
-          color={Colors.textPrimary}
-        />
-        {nav.newsUnreadCount > 0 ? (
-          <View style={styles.countBadge}>
-            <Text style={styles.countText}>
-              {nav.newsUnreadCount > 99 ? '99+' : String(nav.newsUnreadCount)}
-            </Text>
+    <View
+      style={[
+        styles.container,
+        { height: HEADER_BASE_HEIGHT + (insets.top ?? 0), paddingTop: insets.top },
+      ]}
+    >
+      <View style={[styles.side, { width: sideWidth }]}>
+        <TouchableOpacity
+          onPress={onMenuPress}
+          hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+          style={styles.menuTouch}
+          activeOpacity={0.7}
+        >
+          <View style={styles.hamburger}>
+            <View style={styles.bar} />
+            <View style={styles.bar} />
+            <View style={styles.bar} />
           </View>
-        ) : null}
-      </TouchableOpacity>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.center} pointerEvents="none">
+        <Text style={[Typography.brandLogo, styles.brand]}>
+          <Text style={styles.brandTour}>Tour</Text>
+          <Text style={styles.brandMate}>Mate</Text>
+        </Text>
+      </View>
+
+      <View style={[styles.side, { width: sideWidth }]} />
     </View>
   );
 };
@@ -63,14 +54,35 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 56,
     backgroundColor: Colors.backgroundElevated,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: Spacing.xl,
-    zIndex: 50,
-    elevation: 0,
+    zIndex: 110,
+    elevation: 6,
+  },
+  side: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuTouch: {
+    padding: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brand: {
+    fontSize: 18,
+  },
+  brandTour: {
+    color: Colors.textPrimary,
+  },
+  brandMate: {
+    color: Colors.primary,
   },
   hamburger: {
     width: 24,
@@ -82,37 +94,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.textPrimary,
     borderRadius: 1,
     width: 20,
-  },
-  iconWrap: {
-    width: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.accent,
-  },
-  countBadge: {
-    position: 'absolute',
-    top: 4,
-    right: 2,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: Colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  countText: {
-    color: Colors.background,
-    fontSize: 10,
-    lineHeight: 12,
   },
 });
 

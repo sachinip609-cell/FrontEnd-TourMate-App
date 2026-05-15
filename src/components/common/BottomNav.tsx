@@ -17,6 +17,7 @@ const { width: SW } = Dimensions.get('window');
 
 const tabs = [
   { key: 'Home', label: 'HOME', icon: 'home-outline' },
+  { key: 'News', label: 'NEWS', icon: 'newspaper-variant-outline' },
   { key: 'Map', label: 'MAP', icon: 'map-outline' },
   { key: 'AR', label: 'SCAN', icon: 'qrcode-scan' },
   // { key: 'Group', label: 'GROUP', icon: 'account-group-outline' },

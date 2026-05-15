@@ -55,7 +55,7 @@ const SplashScreen: React.FC = () => {
         const [token, savedUser] = await Promise.all([getToken(), getUser()]);
         if (token && savedUser) {
           nav.setUser(savedUser);
-          nav.navigate('Home');
+          nav.navigate('Welcome');
         } else {
           nav.navigate('Login');
         }
@@ -72,7 +72,7 @@ const SplashScreen: React.FC = () => {
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
       <View style={styles.center}>
         <Animated.Image
-          source={require('../../assets/loading.png')}
+          source={require('../../assets/loading1.jpeg')}
           style={[styles.logo, { opacity }]}
           resizeMode="contain"
         />

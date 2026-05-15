@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,22 +16,29 @@ import { NewsCardSkeleton } from '../../components/common/Skeleton';
 import { fetchNewsPage, NewsArticle } from '../../services/newsService';
 import { fetchNewsRaw } from '../../services/newsService';
 import { useAppNavigation } from '../../navigation/AppNavigator';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { HEADER_BASE_HEIGHT } from '../../components/common/AppHeader';
 
 const NewsScreen: React.FC = () => {
   const nav = useAppNavigation();
+  const insets = useSafeAreaInsets();
   const [articles, setArticles] = useState<NewsArticle[]>([]);
-  const [page, setPage] = useState<number>(1);
   const [nextPage, setNextPage] = useState<number | null>(1);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [debugJson, setDebugJson] = useState<string | null>(null);
 
+  // Synchronous guard — prevents onEndReached from firing multiple concurrent
+  // loadPage calls before React propagates the loading=true state update.
+  const isLoadingRef = useRef(false);
+
   const loadPage = useCallback(async (p: number, replace = false) => {
-    if (!p) return;
+    if (!p || isLoadingRef.current) return;
+    isLoadingRef.current = true;
+    setLoading(true);
+    setError(null);
     try {
-      setError(null);
-      if (replace) setLoading(true);
       const { articles: a, nextPage: np } = await fetchNewsPage(p);
       setNextPage(np);
       if (replace) setArticles(a);
@@ -40,39 +47,48 @@ const NewsScreen: React.FC = () => {
       console.warn('News load error', err);
       setError(err?.message ?? String(err));
     } finally {
+      isLoadingRef.current = false;
       setLoading(false);
     }
   }, []);
+
+  const markNewsReadRef = useRef(nav.markNewsRead);
+  useEffect(() => {
+    markNewsReadRef.current = nav.markNewsRead;
+  });
 
   useEffect(() => {
     // initial load
     (async () => {
       await loadPage(1, true);
       // mark as read when user opens the screen
-      nav.markNewsRead();
+      markNewsReadRef.current();
     })();
-  }, [loadPage, nav]);
+  }, [loadPage]);
 
-  const loadMore = () => {
-    if (loading || !nextPage) return;
-    setPage(p => {
-      const np = nextPage ?? p + 1;
-      loadPage(np);
-      return np;
-    });
-  };
+  const loadMore = useCallback(() => {
+    // isLoadingRef check is synchronous — catches rapid onEndReached calls
+    // before the loading state update has propagated through React.
+    if (isLoadingRef.current || nextPage === null) return;
+    loadPage(nextPage);
+  }, [nextPage, loadPage]);
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
       await loadPage(1, true);
-      await nav.markNewsRead();
+      await markNewsReadRef.current();
     } finally {
       setRefreshing(false);
     }
-  };
+  }, [loadPage]);
 
-  const renderItem = ({ item }: { item: NewsArticle }) => (
+  const keyExtractor = useCallback(
+    (item: NewsArticle, index: number) => item.id ?? item.link ?? String(index),
+    [],
+  );
+
+  const renderItem = useCallback(({ item }: { item: NewsArticle }) => (
     <TouchableOpacity
       style={styles.card}
       onPress={() => {
@@ -104,10 +120,16 @@ const NewsScreen: React.FC = () => {
         </View>
       </View>
     </TouchableOpacity>
+  ), []);
+
+  // Stable object reference — prevents FlatList from re-computing layout on every render
+  const flatListContentStyle = React.useMemo(
+    () => ({ paddingVertical: 12, paddingHorizontal: Spacing.lg, paddingBottom: 140 }),
+    [],
   );
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top + HEADER_BASE_HEIGHT }]}>
       {loading && articles.length === 0 ? (
         <View style={{ paddingTop: 24, paddingHorizontal: Spacing.lg }}>
           {[1, 2, 3, 4, 5].map(k => (
@@ -154,7 +176,7 @@ const NewsScreen: React.FC = () => {
       ) : (
         <FlatList
           data={articles}
-          keyExtractor={(item, index) => item.id ?? item.link ?? String(index)}
+          keyExtractor={keyExtractor}
           renderItem={renderItem}
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
@@ -162,11 +184,7 @@ const NewsScreen: React.FC = () => {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
-          contentContainerStyle={{
-            paddingVertical: 12,
-            paddingHorizontal: Spacing.lg,
-            paddingBottom: 140,
-          }}
+          contentContainerStyle={flatListContentStyle}
         />
       )}
     </View>
@@ -176,7 +194,7 @@ const NewsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 80,
+    paddingTop: 0, // overridden dynamically via insets + HEADER_BASE_HEIGHT
     backgroundColor: Colors.background,
   },
   card: {

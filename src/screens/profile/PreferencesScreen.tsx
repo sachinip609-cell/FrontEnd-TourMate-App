@@ -7,12 +7,21 @@ import {
   Switch,
   TouchableOpacity,
   Alert,
+  Platform,
+  Modal,
 } from 'react-native';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Spacing } from '../../theme';
 import { useAppNavigation } from '../../navigation/AppNavigator';
+import { AppConfig } from '../../constants/AppConfig';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const PREFS_KEY = '@TourMate:preferences';
+
+const PREFS_VERSION = 2;
 
 interface Preferences {
   currency: string;
@@ -21,31 +30,25 @@ interface Preferences {
   notificationsEnabled: boolean;
   newsAlerts: boolean;
   tripReminders: boolean;
+  prefsVersion?: number;
 }
 
 const DEFAULT_PREFS: Preferences = {
-  currency: 'USD',
+  currency: 'LKR',
   distanceUnit: 'km',
   language: 'English',
   notificationsEnabled: true,
   newsAlerts: true,
   tripReminders: true,
+  prefsVersion: PREFS_VERSION,
 };
 
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'LKR', 'AUD', 'CAD', 'JPY', 'INR'];
-const LANGUAGES = [
-  'English',
-  'Spanish',
-  'French',
-  'German',
-  'Japanese',
-  'Hindi',
-  'Sinhala',
-  'Tamil',
-];
+const CURRENCIES = ['USD', 'LKR'];
+const LANGUAGES = ['English', 'Sinhala', 'Tamil'];
 
 const PreferencesScreen: React.FC = () => {
   const nav = useAppNavigation();
+  const insets = useSafeAreaInsets();
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS);
   const [saved, setSaved] = useState(false);
 
@@ -53,17 +56,41 @@ const PreferencesScreen: React.FC = () => {
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(PREFS_KEY);
-        if (raw) setPrefs({ ...DEFAULT_PREFS, ...JSON.parse(raw) });
+        if (raw) {
+          const parsed = JSON.parse(raw) as Preferences;
+          let merged: Preferences = { ...DEFAULT_PREFS, ...parsed };
+
+          // Migration: if stored prefs are from older version, update defaults
+          // but only override USD -> DEFAULT_PREFS.currency to avoid clobbering
+          // explicit user choices in other currencies.
+          if (!parsed.prefsVersion || parsed.prefsVersion < PREFS_VERSION) {
+            if (parsed.currency === 'USD') {
+              merged.currency = DEFAULT_PREFS.currency;
+            }
+            merged.prefsVersion = PREFS_VERSION;
+            try {
+              await AsyncStorage.setItem(PREFS_KEY, JSON.stringify(merged));
+            } catch {
+              // ignore persist errors
+            }
+          }
+
+          setPrefs(merged);
+        } else {
+          setPrefs(DEFAULT_PREFS);
+        }
       } catch {
         // use defaults
+        setPrefs(DEFAULT_PREFS);
       }
     })();
   }, []);
 
   const save = useCallback(async (next: Preferences) => {
-    setPrefs(next);
+    const toSave: Preferences = { ...next, prefsVersion: PREFS_VERSION };
+    setPrefs(toSave);
     try {
-      await AsyncStorage.setItem(PREFS_KEY, JSON.stringify(next));
+      await AsyncStorage.setItem(PREFS_KEY, JSON.stringify(toSave));
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
@@ -81,24 +108,23 @@ const PreferencesScreen: React.FC = () => {
     current: string,
     key: keyof Preferences,
   ) => {
-    Alert.alert(
-      title,
-      undefined,
-      [
-        ...options.map(opt => ({
-          text: opt === current ? `✓  ${opt}` : opt,
-          onPress: () => save({ ...prefs, [key]: opt }),
-        })),
-        { text: 'Cancel', style: 'cancel' as const },
-      ],
-      { cancelable: true },
-    );
+    // Use in-app modal picker for longer lists (Android Alert limits buttons)
+    setPickerTitle(title);
+    setPickerOptions(options);
+    setPickerKey(key);
+    setPickerVisible(true);
   };
+
+  // Picker modal state
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [pickerOptions, setPickerOptions] = useState<string[]>([]);
+  const [pickerTitle, setPickerTitle] = useState('');
+  const [pickerKey, setPickerKey] = useState<keyof Preferences | null>(null);
 
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <TouchableOpacity onPress={() => nav.goBack()} style={styles.backBtn}>
           <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
@@ -132,7 +158,12 @@ const PreferencesScreen: React.FC = () => {
             activeOpacity={0.7}
           >
             <View style={styles.rowLeft}>
-              <Text style={styles.rowIcon}>💱</Text>
+              <Icon
+                name="currency-usd"
+                size={20}
+                color={Colors.primary}
+                style={styles.rowIcon}
+              />
               <View>
                 <Text style={styles.rowLabel}>Currency</Text>
                 <Text style={styles.rowValue}>{prefs.currency}</Text>
@@ -156,7 +187,7 @@ const PreferencesScreen: React.FC = () => {
             activeOpacity={0.7}
           >
             <View style={styles.rowLeft}>
-              <Text style={styles.rowIcon}>🌐</Text>
+              <Icon name="translate" size={20} color={Colors.primary} style={styles.rowIcon} />
               <View>
                 <Text style={styles.rowLabel}>Language</Text>
                 <Text style={styles.rowValue}>{prefs.language}</Text>
@@ -180,7 +211,7 @@ const PreferencesScreen: React.FC = () => {
             activeOpacity={0.7}
           >
             <View style={styles.rowLeft}>
-              <Text style={styles.rowIcon}>📏</Text>
+              <Icon name="ruler" size={20} color={Colors.primary} style={styles.rowIcon} />
               <View>
                 <Text style={styles.rowLabel}>Distance Unit</Text>
                 <Text style={styles.rowValue}>{prefs.distanceUnit}</Text>
@@ -195,7 +226,7 @@ const PreferencesScreen: React.FC = () => {
         <View style={styles.card}>
           <View style={styles.row}>
             <View style={styles.rowLeft}>
-              <Text style={styles.rowIcon}>🔔</Text>
+              <Icon name="bell-outline" size={20} color={Colors.primary} style={styles.rowIcon} />
               <View>
                 <Text style={styles.rowLabel}>Push Notifications</Text>
                 <Text style={styles.rowValue}>Enable all notifications</Text>
@@ -218,7 +249,7 @@ const PreferencesScreen: React.FC = () => {
             ]}
           >
             <View style={styles.rowLeft}>
-              <Text style={styles.rowIcon}>📰</Text>
+              <Icon name="newspaper" size={20} color={Colors.primary} style={styles.rowIcon} />
               <View>
                 <Text style={styles.rowLabel}>Travel News</Text>
                 <Text style={styles.rowValue}>Breaking travel stories</Text>
@@ -242,7 +273,7 @@ const PreferencesScreen: React.FC = () => {
             ]}
           >
             <View style={styles.rowLeft}>
-              <Text style={styles.rowIcon}>🗓️</Text>
+              <Icon name="calendar" size={20} color={Colors.primary} style={styles.rowIcon} />
               <View>
                 <Text style={styles.rowLabel}>Trip Reminders</Text>
                 <Text style={styles.rowValue}>Upcoming trip alerts</Text>
@@ -263,18 +294,18 @@ const PreferencesScreen: React.FC = () => {
         <View style={styles.card}>
           <View style={styles.row}>
             <View style={styles.rowLeft}>
-              <Text style={styles.rowIcon}>📱</Text>
+              <Icon name="cellphone" size={20} color={Colors.primary} style={styles.rowIcon} />
               <Text style={styles.rowLabel}>App Version</Text>
             </View>
-            <Text style={styles.valueText}>1.0.0</Text>
+            <Text style={styles.valueText}>{AppConfig.appVersion}</Text>
           </View>
           <View style={styles.rowSep} />
           <View style={styles.row}>
             <View style={styles.rowLeft}>
-              <Text style={styles.rowIcon}>🗺️</Text>
+              <Icon name="map-marker" size={20} color={Colors.primary} style={styles.rowIcon} />
               <Text style={styles.rowLabel}>TourMate</Text>
             </View>
-            <Text style={styles.valueText}>© 2025</Text>
+            <Text style={styles.valueText}>© {new Date().getFullYear()}</Text>
           </View>
         </View>
 
@@ -294,6 +325,51 @@ const PreferencesScreen: React.FC = () => {
           <Text style={styles.resetBtnText}>Reset to Defaults</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Picker modal for options (currency, language, etc.) */}
+      <Modal
+        visible={pickerVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPickerVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setPickerVisible(false)}
+        >
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>{pickerTitle}</Text>
+            <ScrollView style={styles.modalList}>
+              {pickerOptions.map(opt => (
+                <TouchableOpacity
+                  key={opt}
+                  style={styles.modalItem}
+                  onPress={() => {
+                    if (pickerKey) save({ ...prefs, [pickerKey]: opt } as Preferences);
+                    setPickerVisible(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.modalItemText,
+                      pickerKey && prefs[pickerKey] === opt && styles.modalItemSelected,
+                    ]}
+                  >
+                    {pickerKey && prefs[pickerKey] === opt ? `✓  ${opt}` : opt}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.modalCancel}
+              onPress={() => setPickerVisible(false)}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 };
@@ -305,7 +381,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 56,
+    paddingTop: 8, // overridden dynamically via insets.top + 8
     paddingBottom: Spacing.md,
     paddingHorizontal: Spacing.base,
     backgroundColor: Colors.surface,
@@ -378,6 +454,36 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontWeight: '600',
   },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: Spacing.base,
+    paddingTop: Spacing.base,
+    paddingBottom: Platform.OS === 'ios' ? 30 : Spacing.lg,
+    maxHeight: '60%',
+  },
+  modalTitle: {
+    fontSize: 16,
+    color: Colors.textPrimary,
+    fontWeight: '700',
+    marginBottom: Spacing.sm,
+  },
+  modalList: { maxHeight: 320 },
+  modalItem: { paddingVertical: 12 },
+  modalItemText: { fontSize: 15, color: Colors.textPrimary },
+  modalItemSelected: { color: Colors.primary, fontWeight: '700' },
+  modalCancel: {
+    marginTop: Spacing.sm,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  modalCancelText: { color: Colors.textSecondary, fontSize: 15 },
 });
 
 export default PreferencesScreen;

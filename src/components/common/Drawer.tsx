@@ -6,10 +6,11 @@ import {
   StyleSheet,
   Modal,
   Animated,
-  Platform,
+ 
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Colors, Spacing } from '../../theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Props {
   visible: boolean;
@@ -25,6 +26,7 @@ interface MenuItem {
 
 const MENU_ITEMS: MenuItem[] = [
   { label: 'Home', icon: 'home-outline', screen: 'Home' },
+  { label: 'News', icon: 'newspaper-variant-outline', screen: 'News' },
   { label: 'Map', icon: 'map-outline', screen: 'Map' },
   { label: 'AR', icon: 'cube-scan', screen: 'AR' },
   { label: 'Budget', icon: 'wallet-outline', screen: 'Budget' },
@@ -37,6 +39,7 @@ const PANEL_WIDTH = 272;
 
 const Drawer: React.FC<Props> = ({ visible, onClose, onNavigate }) => {
   const slideAnim = useRef(new Animated.Value(-PANEL_WIDTH)).current;
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     Animated.timing(slideAnim, {
@@ -59,14 +62,20 @@ const Drawer: React.FC<Props> = ({ visible, onClose, onNavigate }) => {
         onPress={onClose}
       />
       <Animated.View
-        style={[styles.panel, { transform: [{ translateX: slideAnim }] }]}
+        style={[
+          styles.panel,
+          { paddingTop: insets.top + 16, transform: [{ translateX: slideAnim }] },
+        ]}
       >
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.logoMark}>
             <Icon name="compass-outline" size={28} color={Colors.primary} />
           </View>
-          <Text style={styles.brand}>TourMate</Text>
+          <Text style={styles.brand}>
+            <Text style={styles.brandTour}>Tour</Text>
+            <Text style={styles.brandMate}>Mate</Text>
+          </Text>
           <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
             <Icon name="close" size={22} color={Colors.textSecondary} />
           </TouchableOpacity>
@@ -108,7 +117,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: PANEL_WIDTH,
     backgroundColor: Colors.backgroundElevated,
-    paddingTop: Platform.OS === 'android' ? 36 : 52,
+    paddingTop: 16,  // overridden dynamically via inline style
     paddingBottom: Spacing.xxl,
     borderTopRightRadius: 20,
     borderBottomRightRadius: 20,
@@ -139,6 +148,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: Colors.textPrimary,
     letterSpacing: 0.5,
+  },
+  brandTour: {
+    color: Colors.textPrimary,
+  },
+  brandMate: {
+    color: Colors.primary,
   },
   closeBtn: {
     padding: 4,

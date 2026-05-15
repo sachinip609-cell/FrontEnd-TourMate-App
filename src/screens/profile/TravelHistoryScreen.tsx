@@ -8,7 +8,10 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
+
+
 import { Colors, Spacing } from '../../theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TravelCardSkeleton } from '../../components/common/Skeleton';
 import { useAppNavigation } from '../../navigation/AppNavigator';
 import { AppConfig } from '../../constants/AppConfig';
@@ -44,7 +47,7 @@ const getCategoryIcon = (cat: string) => CATEGORY_ICONS[cat] ?? '📍';
 
 const TravelHistoryScreen: React.FC = () => {
   const nav = useAppNavigation();
-  const [places, setPlaces] = useState<PlaceItem[]>([]);
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,33 +58,19 @@ const TravelHistoryScreen: React.FC = () => {
     setSearchHistory(history);
   };
 
-  const fetchPlaces = async () => {
-    try {
-      const token = await getToken();
-      const res = await fetch(`${AppConfig.api.baseUrl}/places`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await res.json();
-      if (!res.ok || !json.success)
-        throw new Error(json.message || 'Failed to load places');
-      setPlaces(json.data.places ?? json.data ?? []);
-      setError(null);
-    } catch (e: any) {
-      setError(e.message || 'Could not load destinations');
-    }
-  };
+  // destinations list removed: Travel history now shows only search history
 
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([fetchPlaces(), loadSearchHistory()]);
+      await loadSearchHistory();
       setLoading(false);
     })();
   }, []);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([fetchPlaces(), loadSearchHistory()]);
+    await loadSearchHistory();
     setRefreshing(false);
   };
 
@@ -107,24 +96,19 @@ const TravelHistoryScreen: React.FC = () => {
     </View>
   );
 
-  const renderItem = ({ item, index }: { item: PlaceItem; index: number }) => (
-    <View style={[styles.card, index === 0 && styles.cardFirst]}>
-      <View style={styles.cardIcon}>
-        <Text style={styles.cardIconText}>
-          {getCategoryIcon(item.category)}
-        </Text>
+  const renderItem = ({ item, index }: { item: SearchHistoryItem; index: number }) => (
+    <View key={`${item.id}_${item.searchedAt}`} style={[styles.card, index === 0 && styles.cardFirst]}>
+      <View style={[styles.cardIcon, styles.searchCardIcon]}>
+        <Text style={styles.cardIconText}>🔍</Text>
       </View>
       <View style={styles.cardBody}>
-        <Text style={styles.cardName} numberOfLines={1}>
-          {item.name}
-        </Text>
-        <Text style={styles.cardDesc} numberOfLines={2}>
-          {item.shortDescription}
-        </Text>
+        <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.cardDesc} numberOfLines={1}>Searched: “{item.searchQuery}”</Text>
         <View style={styles.cardMeta}>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{item.category}</Text>
+          <View style={[styles.badge, styles.searchBadge]}>
+            <Text style={[styles.badgeText, styles.searchBadgeText]}>{item.category}</Text>
           </View>
+          <Text style={styles.searchTime}>{formatSearchTime(item.searchedAt)}</Text>
         </View>
       </View>
     </View>
@@ -133,7 +117,7 @@ const TravelHistoryScreen: React.FC = () => {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <TouchableOpacity onPress={() => nav.goBack()} style={styles.backBtn}>
           <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
@@ -157,66 +141,10 @@ const TravelHistoryScreen: React.FC = () => {
         </View>
       ) : (
         <FlatList
-          data={places}
-          keyExtractor={item => item._id ?? String(Math.random())}
+          data={searchHistory}
+          keyExtractor={item => `${item.id}_${item.searchedAt}`}
           renderItem={renderItem}
           ListEmptyComponent={renderEmpty}
-          ListHeaderComponent={
-            <View>
-              {/* ── Search History section ── */}
-              {searchHistory.length > 0 && (
-                <View>
-                  <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>🔍 Search History</Text>
-                    <TouchableOpacity onPress={handleClearHistory}>
-                      <Text style={styles.clearHistoryTxt}>Clear all</Text>
-                    </TouchableOpacity>
-                  </View>
-                  {searchHistory.slice(0, 15).map((item, index) => (
-                    <View
-                      key={`${item.id}_${item.searchedAt}`}
-                      style={[styles.card, index === 0 && styles.cardFirst]}
-                    >
-                      <View style={[styles.cardIcon, styles.searchCardIcon]}>
-                        <Text style={styles.cardIconText}>🔍</Text>
-                      </View>
-                      <View style={styles.cardBody}>
-                        <Text style={styles.cardName} numberOfLines={1}>
-                          {item.name}
-                        </Text>
-                        <Text style={styles.cardDesc} numberOfLines={1}>
-                          Searched: “{item.searchQuery}”
-                        </Text>
-                        <View style={styles.cardMeta}>
-                          <View style={[styles.badge, styles.searchBadge]}>
-                            <Text
-                              style={[styles.badgeText, styles.searchBadgeText]}
-                            >
-                              {item.category}
-                            </Text>
-                          </View>
-                          <Text style={styles.searchTime}>
-                            {formatSearchTime(item.searchedAt)}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                  ))}
-                  <View style={styles.sectionDivider} />
-                </View>
-              )}
-
-              {/* ── Destinations header ── */}
-              {places.length > 0 && (
-                <View style={styles.listHeader}>
-                  <Text style={styles.listHeaderText}>
-                    {places.length} destination{places.length !== 1 ? 's' : ''}{' '}
-                    available to explore
-                  </Text>
-                </View>
-              )}
-            </View>
-          }
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -239,7 +167,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 56,
+    paddingTop: 8, // overridden dynamically via insets.top + 8
     paddingBottom: Spacing.md,
     paddingHorizontal: Spacing.base,
     backgroundColor: Colors.surface,

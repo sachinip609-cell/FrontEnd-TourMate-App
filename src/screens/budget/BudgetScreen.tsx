@@ -13,8 +13,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { HEADER_BASE_HEIGHT } from '../../components/common/AppHeader';
 import { Colors, Spacing } from '../../theme';
 import { BudgetCardSkeleton } from '../../components/common/Skeleton';
 import {
@@ -118,6 +120,20 @@ const BudgetFormModal: React.FC<BudgetFormProps> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const titleRef = useRef<TextInput>(null);
+
+  // Read preferred currency from AsyncStorage when opening a new budget form
+  useEffect(() => {
+    if (visible && !initial) {
+      AsyncStorage.getItem('@TourMate:preferences')
+        .then(raw => {
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed?.currency) setCurrency(parsed.currency);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [visible, initial]);
 
   useEffect(() => {
     if (visible) {
@@ -392,6 +408,9 @@ interface DetailProps {
   visible: boolean;
   onClose: () => void;
   onBudgetUpdated: (b: Budget) => void;
+  onSpentChanged?: (budgetId: string, spent: number) => void;
+  /** Override the currency used for display (from user preferences) */
+  displayCurrency?: string;
 }
 
 const BudgetDetailModal: React.FC<DetailProps> = ({
@@ -399,11 +418,22 @@ const BudgetDetailModal: React.FC<DetailProps> = ({
   visible,
   onClose,
   onBudgetUpdated,
+  onSpentChanged,
+  displayCurrency,
 }) => {
+  const dispCur = displayCurrency ?? budget.currency;
   const [items, setItems] = useState<BudgetItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [itemModal, setItemModal] = useState(false);
   const [editingItem, setEditingItem] = useState<BudgetItem | null>(null);
+
+  // Notify parent whenever items change so main list totals stay in sync
+  useEffect(() => {
+    if (!loading) {
+      const total = items.reduce((s, i) => s + i.amount, 0);
+      onSpentChanged?.(budget._id, total);
+    }
+  }, [items, loading, budget._id, onSpentChanged]);
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -472,6 +502,7 @@ const BudgetDetailModal: React.FC<DetailProps> = ({
           try {
             await deleteBudgetItem(budget._id, item._id);
             setItems(prev => prev.filter(i => i._id !== item._id));
+            onBudgetUpdated({ ...budget, updatedAt: Date.now() });
           } catch (e: any) {
             Alert.alert('Error', e?.message ?? 'Could not delete item.');
           }
@@ -505,14 +536,14 @@ const BudgetDetailModal: React.FC<DetailProps> = ({
             <View>
               <Text style={d.summaryLabel}>Total Spent</Text>
               <Text style={d.summarySpent}>
-                {fmtAmount(spent, budget.currency)}
+                {fmtAmount(spent, dispCur)}
               </Text>
             </View>
             {budget.targetAmount > 0 && (
               <View style={{ alignItems: 'flex-end' }}>
                 <Text style={d.summaryLabel}>Target</Text>
                 <Text style={d.summaryTarget}>
-                  {fmtAmount(budget.targetAmount, budget.currency)}
+                  {fmtAmount(budget.targetAmount, dispCur)}
                 </Text>
               </View>
             )}
@@ -523,10 +554,10 @@ const BudgetDetailModal: React.FC<DetailProps> = ({
               style={[d.remaining, remaining < 0 && { color: Colors.error }]}
             >
               {remaining >= 0
-                ? `${fmtAmount(remaining, budget.currency)} remaining`
+                ? `${fmtAmount(remaining, dispCur)} remaining`
                 : `Over budget by ${fmtAmount(
                     Math.abs(remaining),
-                    budget.currency,
+                    dispCur,
                   )}`}
             </Text>
           )}
@@ -577,7 +608,7 @@ const BudgetDetailModal: React.FC<DetailProps> = ({
                 </View>
                 <View style={d.itemRight}>
                   <Text style={d.itemAmount}>
-                    {fmtAmount(item.amount, budget.currency)}
+                    {fmtAmount(item.amount, dispCur)}
                   </Text>
                   <View style={d.itemActions}>
                     <TouchableOpacity
@@ -735,6 +766,8 @@ const BudgetScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [prefCurrency, setPrefCurrency] = useState('LKR');
+  const insets = useSafeAreaInsets();
 
   const [budgetModal, setBudgetModal] = useState(false);
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
@@ -777,6 +810,18 @@ const BudgetScreen: React.FC = () => {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Load preferred currency from Preferences whenever BudgetScreen mounts
+  useEffect(() => {
+    AsyncStorage.getItem('@TourMate:preferences')
+      .then(raw => {
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.currency) setPrefCurrency(parsed.currency);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleOpenAdd = () => {
     setEditingBudget(null);
@@ -851,10 +896,18 @@ const BudgetScreen: React.FC = () => {
     );
   };
 
+  const handleSpentChanged = useCallback((budgetId: string, spent: number) => {
+    setItemTotals(prev => ({ ...prev, [budgetId]: spent }));
+  }, []);
+
+  const handleBudgetUpdated = useCallback((updated: Budget) => {
+    setBudgets(prev => prev.map(b => (b._id === updated._id ? updated : b)));
+    setDetailBudget(updated);
+  }, []);
   return (
     <SafeAreaView style={s.safeArea} edges={['bottom']}>
       {loading && budgets.length === 0 ? (
-        <View style={s.listContent}>
+        <View style={[s.listContent, { paddingTop: insets.top + HEADER_BASE_HEIGHT }]}>
           <Text style={s.screenTitle}>My Trip Budgets</Text>
           {[1, 2, 3].map(k => (
             <BudgetCardSkeleton key={k} />
@@ -864,7 +917,7 @@ const BudgetScreen: React.FC = () => {
         <FlatList
           data={budgets}
           keyExtractor={b => b._id}
-          contentContainerStyle={s.listContent}
+          contentContainerStyle={[s.listContent, { paddingTop: insets.top + HEADER_BASE_HEIGHT }]}
           showsVerticalScrollIndicator={false}
           onRefresh={() => load(true)}
           refreshing={refreshing}
@@ -921,12 +974,12 @@ const BudgetScreen: React.FC = () => {
 
                 <View style={s.cardAmountRow}>
                   <Text style={s.cardSpent}>
-                    {fmtAmount(spent, b.currency)}
+                    {fmtAmount(spent, prefCurrency)}
                   </Text>
                   {hasTarget && (
                     <Text style={s.cardTarget}>
                       {' '}
-                      / {fmtAmount(b.targetAmount, b.currency)}
+                      / {fmtAmount(b.targetAmount, prefCurrency)}
                     </Text>
                   )}
                 </View>
@@ -943,11 +996,11 @@ const BudgetScreen: React.FC = () => {
                     {spent <= b.targetAmount
                       ? `${fmtAmount(
                           b.targetAmount - spent,
-                          b.currency,
+                          prefCurrency,
                         )} remaining`
                       : `Over budget by ${fmtAmount(
                           spent - b.targetAmount,
-                          b.currency,
+                          prefCurrency,
                         )}`}
                   </Text>
                 )}
@@ -979,12 +1032,9 @@ const BudgetScreen: React.FC = () => {
           budget={detailBudget}
           visible={!!detailBudget}
           onClose={() => setDetailBudget(null)}
-          onBudgetUpdated={updated => {
-            setBudgets(prev =>
-              prev.map(b => (b._id === updated._id ? updated : b)),
-            );
-            setDetailBudget(updated);
-          }}
+          onBudgetUpdated={handleBudgetUpdated}
+          onSpentChanged={handleSpentChanged}
+          displayCurrency={prefCurrency}
         />
       )}
     </SafeAreaView>
@@ -996,7 +1046,7 @@ const BudgetScreen: React.FC = () => {
 const s = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  listContent: { padding: Spacing.base, paddingTop: 72, paddingBottom: 120 },
+  listContent: { padding: Spacing.base, paddingTop: 0, paddingBottom: 120 },
   screenTitle: {
     color: Colors.textPrimary,
     fontSize: 22,

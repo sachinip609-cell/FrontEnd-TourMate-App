@@ -25,11 +25,15 @@ import {
 import { fetchNotes } from '../../services/notesService';
 import { AppConfig } from '../../constants/AppConfig';
 import { useAppNavigation } from '../../navigation/AppNavigator';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { HEADER_BASE_HEIGHT } from '../../components/common/AppHeader';
 
 const AVATAR_SIZE = 104;
 
 const ProfileScreen: React.FC = () => {
   const nav = useAppNavigation();
+  const insets = useSafeAreaInsets();
   const [user, setUser] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
   const [notesCount, setNotesCount] = useState<number>(0);
@@ -148,19 +152,19 @@ const ProfileScreen: React.FC = () => {
 
   const menuItems = [
     {
-      icon: '👤',
+      icon: 'account',
       label: 'Personal Information',
       sublabel: 'Name, email and account details',
       onPress: () => nav.navigate('ProfileEdit'),
     },
     {
-      icon: '✈️',
+      icon: 'airplane',
       label: 'Travel History',
       sublabel: 'Your explored destinations',
       onPress: () => nav.navigate('TravelHistory'),
     },
     {
-      icon: '⚙️',
+      icon: 'cog',
       label: 'Preferences',
       sublabel: 'Currency, language & notifications',
       onPress: () => nav.navigate('Preferences'),
@@ -170,7 +174,10 @@ const ProfileScreen: React.FC = () => {
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[
+        styles.content,
+        { paddingTop: insets.top + HEADER_BASE_HEIGHT + 12 },
+      ]}
       showsVerticalScrollIndicator={false}
     >
       {/* Header card */}
@@ -207,7 +214,7 @@ const ProfileScreen: React.FC = () => {
               {uploading ? (
                 <ActivityIndicator size="small" color={Colors.white} />
               ) : (
-                <Text style={styles.cameraIcon}>📷</Text>
+                <Icon name="camera" size={14} color={Colors.white} />
               )}
             </View>
           </TouchableOpacity>
@@ -249,7 +256,7 @@ const ProfileScreen: React.FC = () => {
               activeOpacity={0.7}
             >
               <View style={styles.menuIcon}>
-                <Text style={styles.menuIconText}>{item.icon}</Text>
+                <Icon name={item.icon} size={18} color={Colors.primary} />
               </View>
               <View style={styles.menuContent}>
                 <Text style={styles.menuLabel}>{item.label}</Text>
@@ -271,7 +278,7 @@ const ProfileScreen: React.FC = () => {
             activeOpacity={0.7}
           >
             <View style={[styles.menuIcon, styles.menuIconDanger]}>
-              <Text style={styles.menuIconText}>🚪</Text>
+              <Icon name="logout" size={18} color={Colors.error} />
             </View>
             <View style={styles.menuContent}>
               <Text style={[styles.menuLabel, styles.dangerText]}>
@@ -290,7 +297,7 @@ const ProfileScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   content: {
-    paddingTop: 80,
+    paddingTop: 80, // overridden dynamically via insets + HEADER_BASE_HEIGHT inline style
     paddingBottom: 120,
     paddingHorizontal: Spacing.base,
   },

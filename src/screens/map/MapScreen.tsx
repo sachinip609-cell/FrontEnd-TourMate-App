@@ -18,6 +18,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Geolocation from 'react-native-geolocation-service';
 import { Colors, Spacing } from '../../theme';
 import { FontSizes, FontWeight, Radius } from '../../theme/tokens';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   fetchAccommodations,
   GooglePlace,
@@ -26,6 +27,7 @@ import {
 } from '../../services/googlePlacesService';
 import { saveSearchHistory } from '../../services/searchHistoryService';
 import { useAppNavigation } from '../../navigation/AppNavigator';
+import { HEADER_BASE_HEIGHT } from '../../components/common/AppHeader';
 
 // ─── Max markers to render at once (prevents OOM on Android) ──────────────────
 const MAX_MARKERS = 25;
@@ -155,6 +157,9 @@ async function ensureLocationPermission(): Promise<boolean> {
 
 const MapScreen: React.FC = () => {
   const mapRef = useRef<MapView>(null);
+
+  const insets = useSafeAreaInsets();
+  const topBase = (insets.top ?? 0) + HEADER_BASE_HEIGHT;
 
   // Track whether THIS screen is the currently active tab.
   // Because the component is always mounted (never unmounted on tab switch),
@@ -608,7 +613,7 @@ const MapScreen: React.FC = () => {
       </View>
 
       {/* ── Search bar ──────────────────────────────────────────────────── */}
-      <View style={styles.searchBar}>
+      <View style={[styles.searchBar, { top: topBase + 10 }] }>
         <TextInput
           style={styles.searchInput}
           placeholder="Search places..."
@@ -652,7 +657,7 @@ const MapScreen: React.FC = () => {
       </View>
 
       {/* ── Category filter chips ────────────────────────────────────────── */}
-      <View style={styles.filterBar}>
+      <View style={[styles.filterBar, { top: topBase + 64 }]}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -696,7 +701,7 @@ const MapScreen: React.FC = () => {
 
       {/* ── Loading overlay ─────────────────────────────────────────────────── */}
       {loading && (
-        <View style={styles.loadingPill}>
+        <View style={[styles.loadingPill, { top: topBase + 116 }]}>
           <ActivityIndicator color={Colors.primary} size="small" />
           <Text style={styles.loadingPillText}>Searching nearby…</Text>
         </View>
@@ -711,7 +716,7 @@ const MapScreen: React.FC = () => {
 
       {/* ── Error banner ────────────────────────────────────────────────────── */}
       {error !== null && !loading && (
-        <View style={styles.errorBanner}>
+        <View style={[styles.errorBanner, { top: topBase + 62 }]}>
           <Text style={styles.errorText} numberOfLines={2}>
             {error}
           </Text>
