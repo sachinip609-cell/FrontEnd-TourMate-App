@@ -11,25 +11,45 @@ import {
   ScrollView,
   Dimensions,
 } from 'react-native';
-import {
-  Camera,
-  useCameraDevice,
-  useCameraPermission,
-  useCodeScanner,
-} from 'react-native-vision-camera';
+
+let Camera: any = null;
+let _useCamDevice: (pos: 'back' | 'front') => any = () => null;
+let _useCamPermission: () => {
+  hasPermission: boolean;
+  requestPermission: () => Promise<boolean>;
+} = () => ({ hasPermission: false, requestPermission: async () => false });
+let _useCodeScannerFn: ((opts: any) => any) | null = null;
+
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const vc = require('react-native-vision-camera');
+  Camera = vc?.Camera ?? null;
+  _useCamDevice = vc?.useCameraDevice ?? (() => null);
+  _useCamPermission =
+    vc?.useCameraPermission ??
+    (() => ({ hasPermission: false, requestPermission: async () => false }));
+  _useCodeScannerFn = vc?.useCodeScanner ?? null;
+} catch {
+  // Camera features unavailable on this device/build
+}
+
+function useCameraDevice(pos: 'back' | 'front') {
+  return _useCamDevice(pos);
+}
+function useCameraPermission() {
+  return _useCamPermission();
+}
+// Returns null when worklets native module is not linked (no crash).
+function useSafeCodeScanner(opts: any) {
+  if (!_useCodeScannerFn) return null;
+  return _useCodeScannerFn(opts);
+}
 import { Colors, Spacing } from '../../theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppNavigation } from '../../navigation/AppNavigator';
 import { HEADER_BASE_HEIGHT } from '../../components/common/AppHeader';
 import ErrorBoundary from '../../components/common/ErrorBoundary';
 
-// ---------------------------------------------------------------------------
-// Load ViroReact safely — the package sets exports.ViroARSceneNavigator = void 0
-// at the top of its CJS file and only assigns it near the end. If anything in
-// between throws on Hermes/New-Arch, the export stays undefined and later code
-// crashes with "Cannot read property 'ViroARSceneNavigator' of undefined".
-// Wrapping in try/catch lets us show a graceful error instead of a red screen.
-// ---------------------------------------------------------------------------
 let ViroARSceneNavigator: any = null;
 let ViroARScene: any = null;
 let Viro3DObject: any = null;
@@ -130,7 +150,8 @@ const HOUSE_MODEL_INFO: ModelInfo = {
     {
       icon: '♿',
       title: 'Accessibility',
-      detail: 'Ground-level access and ramps available; some galleries may have steps.',
+      detail:
+        'Ground-level access and ramps available; some galleries may have steps.',
     },
   ],
 };
@@ -149,7 +170,8 @@ const PSX_HOUSE_MODEL_INFO: ModelInfo = {
     {
       icon: '🎟️',
       title: 'Admission',
-      detail: 'Ticketed entry for visitors; donations are appreciated.\nSpecial puja times may have separate access rules.',
+      detail:
+        'Ticketed entry for visitors; donations are appreciated.\nSpecial puja times may have separate access rules.',
     },
     {
       icon: '🗺️',
@@ -166,7 +188,8 @@ const PSX_HOUSE_MODEL_INFO: ModelInfo = {
     {
       icon: '♿',
       title: 'Accessibility',
-      detail: 'Temple grounds include steps; wheelchair access is limited in some areas.',
+      detail:
+        'Temple grounds include steps; wheelchair access is limited in some areas.',
     },
   ],
 };
@@ -176,28 +199,24 @@ const MODEL_INFO_MAP: Record<string, ModelInfo> = {
   psx: PSX_HOUSE_MODEL_INFO,
 };
 
-// ---------------------------------------------------------------------------
-// AR Scene — only referenced after VIRO_READY is confirmed true
-// ---------------------------------------------------------------------------
 interface ARSceneProps {
   sceneNavigator: {
     viroAppProps: {
       arMode: 'marker' | 'forced';
-
       onMarkerFound: () => void;
-
       onMarkerLost: () => void;
       onModelLoaded: () => void;
       onModelError: () => void;
       onModelTapped: (id: string) => void;
+      /** fires once the user taps a detected plane (forced mode) */
+      onPlaneSelected: () => void;
     };
   };
 }
 
-// Gesture scale limits shared across all models in the AR scene
-const AR_BASE_SCALE = 0.12;
-const AR_MIN_SCALE = 0.05;
-const AR_MAX_SCALE = 0.4;
+const AR_BASE_SCALE = 0.045;
+const AR_MIN_SCALE = 0.012;
+const AR_MAX_SCALE = 0.18;
 const arClamp = (v: number) =>
   Math.min(AR_MAX_SCALE, Math.max(AR_MIN_SCALE, v));
 
@@ -209,6 +228,7 @@ function HouseARScene({ sceneNavigator }: ARSceneProps) {
     onModelLoaded,
     onModelError,
     onModelTapped,
+    onPlaneSelected,
   } = sceneNavigator?.viroAppProps ?? {};
   const Scene = ViroARScene;
   const Ambient = ViroAmbientLight;
@@ -217,42 +237,33 @@ function HouseARScene({ sceneNavigator }: ARSceneProps) {
   const Spot = ViroSpotLight;
   const Model = Viro3DObject;
   const ImageMarker = ViroARImageMarker;
+  // ViroARPlaneSelector: anchors models to a user-tapped real-world surface
+  const PlaneSelector = ViroARPlaneSelector;
 
-  // ── Per-model scale & Y-rotation state ────────────────────────────────────
-  const [houseScale, setHouseScale] = useState(AR_BASE_SCALE);
-  const [psxScale, setPsxScale] = useState(AR_BASE_SCALE);
+  // ── Shared scale + per-model Y-rotation state ───────────────────────────
+  // Single shared scale keeps both models the same size at all times.
+  // Pinch gesture on either model resizes both together.
+  const [modelScale, setModelScale] = useState(AR_BASE_SCALE);
   const [houseRotY, setHouseRotY] = useState(0);
   const [psxRotY, setPsxRotY] = useState(0);
   /** id of model currently showing its tap-pulse animation, or null */
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
   // Track scale at pinch-gesture start so we multiply relative to it
-  const housePinchStart = useRef(AR_BASE_SCALE);
-  const psxPinchStart = useRef(AR_BASE_SCALE);
+  const pinchStart = useRef(AR_BASE_SCALE);
 
-  // Pinch-to-scale: state 1 = started, 2/3 = ongoing/ended
-  const handleHousePinch = useCallback(
+  // Shared pinch-to-scale handler — applies to whichever model the user pinches
+  const handlePinch = useCallback(
     (_src: any, factor: number, state: number) => {
       if (state === 1) {
-        housePinchStart.current = houseScale;
+        pinchStart.current = modelScale;
       } else {
-        setHouseScale(arClamp(housePinchStart.current * factor));
+        setModelScale(arClamp(pinchStart.current * factor));
       }
     },
-    [houseScale],
-  );
-  const handlePsxPinch = useCallback(
-    (_src: any, factor: number, state: number) => {
-      if (state === 1) {
-        psxPinchStart.current = psxScale;
-      } else {
-        setPsxScale(arClamp(psxPinchStart.current * factor));
-      }
-    },
-    [psxScale],
+    [modelScale],
   );
 
-  // Two-finger rotate: rotationFactor is degrees; subtract to match natural finger direction
   const handleHouseRotate = useCallback(
     (_src: any, deg: number, state: number) => {
       if (state === 2 || state === 3) setHouseRotY(prev => prev - deg);
@@ -266,7 +277,12 @@ function HouseARScene({ sceneNavigator }: ARSceneProps) {
     [],
   );
 
-  // Tap: brief scale-pulse (280 ms) then open info sheet
+  useEffect(() => {
+    if (arMode !== 'marker' && !PlaneSelector) {
+      onPlaneSelected?.();
+    }
+  }, [arMode, onPlaneSelected]);
+
   const handleModelTap = useCallback(
     (id: string) => {
       setHighlightId(id);
@@ -278,11 +294,10 @@ function HouseARScene({ sceneNavigator }: ARSceneProps) {
     [onModelTapped],
   );
 
-  // Two models placed side-by-side: Heritage House (left) and Japanese House (right)
   const modelContent = (
     <>
-      {/* ── Heritage House ── */}
-      <NodeComp position={[-0.9, 0, 0]}>
+      {/* ── Kandy Museum (Heritage House) ── */}
+      <NodeComp position={[-0.38, 0, 0]}>
         <Spot
           innerAngle={5}
           outerAngle={20}
@@ -299,22 +314,23 @@ function HouseARScene({ sceneNavigator }: ARSceneProps) {
           source={{ uri: 'file:///android_asset/models/House_gltf.glb' }}
           type="GLB"
           scale={[
-            houseScale * (highlightId === 'house' ? 1.22 : 1),
-            houseScale * (highlightId === 'house' ? 1.22 : 1),
-            houseScale * (highlightId === 'house' ? 1.22 : 1),
+            modelScale * (highlightId === 'house' ? 1.15 : 1),
+            modelScale * (highlightId === 'house' ? 1.15 : 1),
+            modelScale * (highlightId === 'house' ? 1.15 : 1),
           ]}
           position={[0, 0, 0]}
-          rotation={[0, houseRotY, 0]}
+          // -90° on X corrects Blender Z-up → ViroReact Y-up so model stands upright
+          rotation={[-90, houseRotY, 0]}
           onLoadEnd={onModelLoaded}
           onError={onModelError}
           onClick={() => handleModelTap('house')}
-          onPinch={handleHousePinch}
+          onPinch={handlePinch}
           onRotate={handleHouseRotate}
         />
       </NodeComp>
 
-      {/* ── Japanese Village House ── */}
-      <NodeComp position={[0.9, 0, 0]}>
+      {/* ── Temple of the Tooth (PSX House) ── */}
+      <NodeComp position={[0.38, 0, 0]}>
         <Spot
           innerAngle={5}
           outerAngle={20}
@@ -333,16 +349,17 @@ function HouseARScene({ sceneNavigator }: ARSceneProps) {
           }}
           type="GLB"
           scale={[
-            psxScale * (highlightId === 'psx' ? 1.22 : 1),
-            psxScale * (highlightId === 'psx' ? 1.22 : 1),
-            psxScale * (highlightId === 'psx' ? 1.22 : 1),
+            modelScale * (highlightId === 'psx' ? 1.15 : 1),
+            modelScale * (highlightId === 'psx' ? 1.15 : 1),
+            modelScale * (highlightId === 'psx' ? 1.15 : 1),
           ]}
           position={[0, 0, 0]}
-          rotation={[0, psxRotY, 0]}
+          // -90° on X corrects Blender Z-up → ViroReact Y-up so model stands upright
+          rotation={[-90, psxRotY, 0]}
           onLoadEnd={onModelLoaded}
           onError={onModelError}
           onClick={() => handleModelTap('psx')}
-          onPinch={handlePsxPinch}
+          onPinch={handlePinch}
           onRotate={handlePsxRotate}
         />
       </NodeComp>
@@ -351,21 +368,24 @@ function HouseARScene({ sceneNavigator }: ARSceneProps) {
 
   return (
     <Scene>
-      <Ambient color="#ffffff" intensity={200} />
+      {/* Neutral ambient — low so model PBR textures dominate */}
+      <Ambient color="#ffffff" intensity={100} />
+      {/* Key light: pure white from above-left */}
       <Directional
-        color="#fffcf0"
+        color="#ffffff"
         direction={[-0.5, -0.8, -0.3]}
-        intensity={350}
+        intensity={250}
         castsShadow
         shadowFarZ={6}
         shadowNearZ={0.01}
         shadowOpacity={0.4}
         shadowMapSize={2048}
       />
+      {/* Subtle neutral fill — no blue tint */}
       <Directional
-        color="#a8c8ff"
+        color="#ffffff"
         direction={[0.5, -0.3, 0.8]}
-        intensity={120}
+        intensity={60}
       />
 
       {arMode === 'marker' && MARKER_AR_READY ? (
@@ -378,17 +398,25 @@ function HouseARScene({ sceneNavigator }: ARSceneProps) {
           {/* Lift models slightly above the QR plane */}
           <NodeComp position={[0, 0.05, 0]}>{modelContent}</NodeComp>
         </ImageMarker>
+      ) : PlaneSelector ? (
+        // alignment="Horizontal" restricts detection to floors/tables only;
+        // minWidth/minHeight filter out small noisy plane fragments.
+        <PlaneSelector
+          alignment="Horizontal"
+          minWidth={0.2}
+          minHeight={0.2}
+          maxPlanes={3}
+          onPlaneSelected={() => onPlaneSelected?.()}
+        >
+          {modelContent}
+        </PlaneSelector>
       ) : (
-        // Forced / fallback: models placed 1.8 m in front of the user
-        <NodeComp position={[0, -0.25, -1.8]}>{modelContent}</NodeComp>
+        <NodeComp position={[0, -0.2, -1.5]}>{modelContent}</NodeComp>
       )}
     </Scene>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Model Info Bottom Sheet
-// ---------------------------------------------------------------------------
 const SCREEN_H = Dimensions.get('window').height;
 const SHEET_H = Math.round(SCREEN_H * 0.55); // 55 % of screen height
 
@@ -512,9 +540,9 @@ const CameraQRLayer: React.FC<CameraQRLayerProps> = ({
     }
   }, [hasPermission, requestPermission]);
 
-  const codeScanner = useCodeScanner({
+  const codeScanner = useSafeCodeScanner({
     codeTypes: ['qr'],
-    onCodeScanned: codes => {
+    onCodeScanned: (codes: { value?: string }[]) => {
       if (codes.length === 0 || !isActive || !canScan) return;
       const value = (codes[0].value ?? '').trim();
       if (value === AR_VALID_KEY) {
@@ -568,7 +596,7 @@ const CameraQRLayer: React.FC<CameraQRLayerProps> = ({
   return (
     <>
       {/* Camera preview */}
-      {device ? (
+      {Camera && device ? (
         <Camera
           style={StyleSheet.absoluteFill}
           device={device}
@@ -576,7 +604,7 @@ const CameraQRLayer: React.FC<CameraQRLayerProps> = ({
           photo={false}
           video={false}
           audio={false}
-          codeScanner={codeScanner}
+          {...(codeScanner != null ? { codeScanner } : {})}
         />
       ) : (
         <View style={[StyleSheet.absoluteFill, s.camLoading]}>
@@ -707,6 +735,8 @@ const ARScreen: React.FC<ARScreenProps> = () => {
   const [showManualEntry, setShowManualEntry] = useState(false);
   // null = sheet closed; string key = which model was tapped
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
+  /** true once user has tapped a real-world plane in forced AR mode */
+  const [planeSelected, setPlaneSelected] = useState(false);
 
   // (auto-place timer removed — marker mode anchors to QR; forced mode places immediately)
 
@@ -759,6 +789,7 @@ const ARScreen: React.FC<ARScreenProps> = () => {
     setMarkerFound(false);
     setModelLoaded(false);
     setArMode('marker');
+    setPlaneSelected(false);
   }, []);
 
   const scanLineY = scanLine.interpolate({
@@ -774,7 +805,9 @@ const ARScreen: React.FC<ARScreenProps> = () => {
     ? '🔍 Point camera at the TourMate QR code'
     : arMode === 'marker'
     ? '✓ QR detected — models anchored to QR'
-    : '✓ AR activated — walk around to explore';
+    : !planeSelected
+    ? '👆 Tap a flat surface to place the models'
+    : '✓ Models placed — walk around to explore';
 
   // ── ViroReact / ARCore not available on this device ──
   if (!VIRO_READY) {
@@ -831,6 +864,7 @@ const ARScreen: React.FC<ARScreenProps> = () => {
       {appState === 'arActive' && (
         <Navigator
           autofocus
+          hdrScene={false}
           initialScene={{ scene: HouseARScene }}
           viroAppProps={{
             arMode,
@@ -839,6 +873,7 @@ const ARScreen: React.FC<ARScreenProps> = () => {
             onModelLoaded: () => setModelLoaded(true),
             onModelError: () => setModelError(true),
             onModelTapped: (id: string) => setActiveModelId(id),
+            onPlaneSelected: () => setPlaneSelected(true),
           }}
           style={StyleSheet.absoluteFillObject}
         />
@@ -867,14 +902,12 @@ const ARScreen: React.FC<ARScreenProps> = () => {
         )}
       </View>
 
-      {/* ── AR hint bar ── */}
       {appState === 'arActive' && (
         <View style={s.arHintBar}>
           <Text style={s.arHintTxt}>{arHintText}</Text>
         </View>
       )}
 
-      {/* ── Model info bottom sheet ── */}
       <ModelInfoSheet
         visible={activeModelId !== null}
         info={
@@ -888,9 +921,6 @@ const ARScreen: React.FC<ARScreenProps> = () => {
   );
 };
 
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
   camLoading: {
